@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create a Telegram Bot → ESP32</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #1a1b26;
+    --bg-deep: #13141c;
+    --surface: #1f2335;
+    --surface-2: #24283b;
+    --border: #2f334d;
+    --border-bright: #414868;
+    --text: #c0caf5;
+    --text-dim: #9aa5ce;
+    --comment: #565f89;
+    --blue: #7aa2f7;
+    --cyan: #7dcfff;
+    --green: #9ece6a;
+    --purple: #bb9af7;
+    --orange: #ff9e64;
+    --red: #f7768e;
+    --yellow: #e0af68;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html,body{
+    margin:0; padding:0;
+    height:100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* ---------- background texture ---------- */
+  #bgcanvas{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(circle at 12% 8%, rgba(122,162,247,0.08), transparent 40%),
+      radial-gradient(circle at 88% 92%, rgba(187,154,247,0.07), transparent 42%),
+      linear-gradient(var(--bg), var(--bg));
+  }
+  #bgcanvas::before{
+    content:"";
+    position:absolute; inset:0;
+    background-image:
+      linear-gradient(rgba(122,162,247,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(122,162,247,0.035) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+  }
+
+  /* ---------- deck shell ---------- */
+  #deck{
+    position:relative; z-index:1;
+    width:100vw; height:100vh;
+    display:flex; align-items:stretch; justify-content:stretch;
+  }
+
+  .slide{
+    position:absolute; inset:0;
+    display:none;
+    flex-direction:column;
+    padding: 64px 88px 100px;
+    opacity:0;
+    transform: translateY(14px);
+    transition: opacity .45s ease, transform .45s ease;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .slide.active{
+    display:flex;
+    opacity:1;
+    transform: translateY(0);
+  }
+
+  .eyebrow{
+    display:flex; align-items:center; gap:10px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--comment);
+    margin-bottom: 18px;
+  }
+  .eyebrow .dot{ width:7px; height:7px; border-radius:50%; background: var(--green); box-shadow:0 0 8px var(--green); }
+  .eyebrow .part-tag{ color: var(--cyan); }
+
+  h1.slide-title{
+    font-family: var(--font-display);
+    font-weight:700;
+    font-size: 42px;
+    line-height:1.15;
+    margin:0 0 6px;
+    color:#e6e9f7;
+    letter-spacing:-0.01em;
+  }
+  h1.slide-title .accent{ color: var(--blue); }
+
+  .subtitle{
+    font-family: var(--font-body);
+    color: var(--text-dim);
+    font-size: 17px;
+    margin: 0 0 30px;
+    max-width: 720px;
+  }
+
+  .slide-body{
+    flex:1;
+    display:flex;
+    min-height:0;
+  }
+
+  /* ---------- generic components ---------- */
+  .prompt-tag{
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-bright);
+    color: var(--text-dim);
+    background: var(--surface);
+  }
+
+  .step-card{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px 24px;
+    position:relative;
+  }
+  .step-num{
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--comment);
+    letter-spacing: 0.08em;
+  }
+  .step-title{
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight:600;
+    color: #e6e9f7;
+    margin: 6px 0 8px;
+  }
+  .step-desc{
+    color: var(--text-dim);
+    font-size: 14.5px;
+    line-height:1.55;
+  }
+
+  .telegram-bubble{
+    font-family: var(--font-body);
+    background: var(--surface-2);
+    border: 1px solid var(--border-bright);
+    border-radius: 14px 14px 14px 4px;
+    padding: 12px 16px;
+    display:inline-block;
+    color: var(--text);
+    font-size: 14.5px;
+    max-width: 100%;
+  }
+  .telegram-bubble.me{
+    border-radius: 14px 14px 4px 14px;
+    background: rgba(122,162,247,0.14);
+    border-color: rgba(122,162,247,0.35);
+  }
+  .telegram-bubble .who{
+    display:block;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color: var(--cyan);
+    margin-bottom: 4px;
+  }
+  .telegram-bubble.me .who{ color: var(--blue); text-align:right; }
+  .telegram-bubble code{ color: var(--green); }
+
+  .codebox{
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height:1.65;
+    overflow:auto;
+    position:relative;
+  }
+  .codebox .codebox-head{
+    display:flex; align-items:center; gap:8px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--comment);
+    letter-spacing:.06em;
+  }
+  .codebox .codebox-head .dots{ display:flex; gap:5px; margin-right:6px; }
+  .codebox .codebox-head .dots span{ width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .codebox .codebox-head .dots span:nth-child(1){ background:#f7768e; }
+  .codebox .codebox-head .dots span:nth-child(2){ background:#e0af68; }
+  .codebox .codebox-head .dots span:nth-child(3){ background:#9ece6a; }
+  .codebox pre{ margin:0; padding: 16px 18px; white-space:pre; -webkit-overflow-scrolling:touch; }
+  .codebox .c-kw{ color: var(--purple); }
+  .codebox .c-str{ color: var(--green); }
+  .codebox .c-com{ color: var(--comment); font-style:italic; }
+  .codebox .c-fn{ color: var(--blue); }
+  .codebox .c-var{ color: var(--orange); }
+  .codebox .c-num{ color: var(--yellow); }
+
+  .pill{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border:1px solid var(--border-bright);
+    color: var(--text-dim);
+  }
+
+  /* ---------- signal path signature element ---------- */
+  .signal-path{
+    display:flex; align-items:center; justify-content:center;
+    gap: 0;
+    flex-wrap: nowrap;
+  }
+  .signal-node{
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+    min-width: 96px;
+  }
+  .signal-node .node-icon{
+    width:52px; height:52px; border-radius:14px;
+    display:flex; align-items:center; justify-content:center;
+    background: var(--surface-2);
+    border: 1px solid var(--border-bright);
+    font-size: 22px;
+  }
+  .signal-node .node-label{
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-dim);
+    text-align:center;
+    letter-spacing: .02em;
+  }
+  .signal-link{
+    flex:1;
+    height:2px;
+    min-width: 26px;
+    background: repeating-linear-gradient(90deg, var(--border-bright) 0 6px, transparent 6px 12px);
+    position:relative;
+    top:-19px;
+  }
+  .signal-link.on{
+    background: repeating-linear-gradient(90deg, var(--green) 0 6px, transparent 6px 12px);
+    animation: dash 1.1s linear infinite;
+  }
+  @keyframes dash{ to{ background-position: 24px 0; } }
+
+  .flow-vertical{
+    display:flex; flex-direction:column; align-items:flex-start;
+    gap: 0;
+  }
+  .flow-step{
+    display:flex; align-items:center; gap:14px;
+  }
+  .flow-step .node-icon{
+    width:42px; height:42px; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    background: var(--surface-2);
+    border: 1px solid var(--border-bright);
+    font-size:18px;
+    flex-shrink:0;
+  }
+  .flow-step .flow-label{ font-family: var(--font-mono); font-size:14px; color:var(--text); }
+  .flow-step .flow-sub{ font-size:12px; color:var(--comment); margin-top:2px; }
+  .flow-connector{
+    width:2px; height:26px; margin-left:20px;
+    background: repeating-linear-gradient(180deg, var(--border-bright) 0 5px, transparent 5px 10px);
+  }
+  .flow-connector.on{ background: repeating-linear-gradient(180deg, var(--green) 0 5px, transparent 5px 10px); }
+
+  /* ---------- nav / chrome ---------- */
+  .chrome-top{
+    position:fixed; top:0; left:0; right:0; z-index:5;
+    height:3px;
+    background: var(--border);
+  }
+  .chrome-top .bar{
+    height:100%;
+    background: linear-gradient(90deg, var(--blue), var(--cyan));
+    width:0%;
+    transition: width .4s ease;
+  }
+
+  .chrome-bottom{
+    position:fixed; bottom:22px; left:0; right:0; z-index:5;
+    display:flex; align-items:center; justify-content:center;
+    gap: 18px;
+    pointer-events:none;
+  }
+  .chrome-bottom .navbtn, .chrome-bottom .counter{ pointer-events:all; }
+  .navbtn{
+    width:38px; height:38px; border-radius:10px;
+    background: var(--surface);
+    border:1px solid var(--border-bright);
+    color: var(--text-dim);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    font-size:16px;
+    transition: all .15s ease;
+    user-select:none;
+  }
+  .navbtn:hover{ color: var(--text); border-color: var(--blue); background: var(--surface-2); }
+  .navbtn.disabled{ opacity:.3; pointer-events:none; }
+
+  .dots-nav{ display:flex; gap:7px; align-items:center; }
+  .dots-nav .d{
+    width:6px; height:6px; border-radius:50%;
+    background: var(--border-bright);
+    cursor:pointer;
+    transition: all .2s ease;
+  }
+  .dots-nav .d.active{ background: var(--blue); width:18px; border-radius:4px; }
+
+  .counter{
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--comment);
+    letter-spacing:.05em;
+    min-width:52px;
+  }
+
+  .brand-tag{
+    position:fixed; top:22px; right:34px; z-index:5;
+    font-family: var(--font-mono);
+    font-size:11.5px;
+    color: var(--comment);
+    letter-spacing:.08em;
+    display:flex; align-items:center; gap:8px;
+  }
+  .brand-tag .sq{ width:8px; height:8px; background: var(--purple); border-radius:2px; }
+
+  /* utility grids */
+  .grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap: 22px; width:100%; }
+  .grid-3{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; width:100%; }
+  .col{ display:flex; flex-direction:column; gap:16px; justify-content:center; width:100%; }
+  .stack{ display:flex; flex-direction:column; gap:14px; width:100%; }
+
+  .kicker-num{
+    font-family: var(--font-display);
+    font-weight:700;
+    font-size: 15px;
+    color: var(--bg);
+    background: var(--blue);
+    width:26px; height:26px;
+    border-radius:7px;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+  }
+
+  .roadmap-item{
+    display:flex; align-items:flex-start; gap:14px;
+    padding: 14px 16px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background: var(--surface);
+  }
+  .roadmap-item .rtitle{ font-family: var(--font-display); font-weight:600; font-size:15.5px; color:#e6e9f7; }
+  .roadmap-item .rsub{ font-size:12.5px; color:var(--text-dim); margin-top:3px; }
+  .phase-label{
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color: var(--comment);
+    margin: 4px 0 10px;
+    padding-left:2px;
+  }
+
+  .notif-card{
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border:1px solid var(--red);
+    box-shadow: 0 0 0 1px rgba(247,118,142,0.15), 0 12px 30px rgba(247,118,142,0.08);
+    border-radius:14px;
+    padding: 18px 20px;
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    line-height:1.75;
+    color: var(--text);
+  }
+  .notif-card .notif-title{ color: var(--red); font-weight:700; }
+
+  ::selection{ background: rgba(122,162,247,0.3); }
+
+  /* ---------- responsive breakpoints ---------- */
+  @media (max-width: 1000px){
+    .slide{ padding: 52px 44px 100px; }
+    h1.slide-title{ font-size: 34px; }
+    .slide-body{ gap:20px !important; }
+  }
+
+  @media (max-width: 760px){
+    .brand-tag{ display:none; }
+    .slide{ padding: 34px 22px 96px; }
+    .eyebrow{ font-size: 11px; margin-bottom:14px; flex-wrap:wrap; gap:8px; }
+    h1.slide-title{ font-size: 25px; line-height:1.22; }
+    h1.slide-title[style*="56px"]{ font-size: 30px !important; }
+    .subtitle{ font-size: 14.5px; margin-bottom:20px; }
+
+    .slide-body{
+      flex-direction:column !important;
+      gap:16px !important;
+      overflow: visible;
+    }
+    .slide-body > *{ flex: none !important; width:100% !important; }
+
+    .grid-2, .grid-3{ grid-template-columns: 1fr; gap:14px; }
+
+    .step-card{ padding:16px 18px; }
+    .step-title{ font-size:17px; }
+    .step-desc{ font-size:13.5px !important; }
+
+    .codebox{ font-size:11.5px; }
+    .codebox pre{ padding:12px 14px; }
+
+    .signal-path{
+      flex-wrap: wrap;
+      row-gap: 22px;
+      column-gap: 6px;
+    }
+    .signal-link{
+      display:none;
+    }
+    .signal-node{ min-width: 74px; }
+    .signal-node .node-icon{ width:44px; height:44px; font-size:18px; }
+    .signal-node .node-label{ font-size:10px; }
+
+    .telegram-bubble{ font-size:13.5px; padding:10px 13px; }
+
+    .notif-card{ font-size:12.5px; padding:14px 16px; }
+
+    .roadmap-item{ padding:12px 14px; }
+    .roadmap-item .rtitle{ font-size:14.5px; }
+    .roadmap-item .rsub{ font-size:12px; }
+
+    .flow-step .node-icon{ width:36px; height:36px; font-size:15px; }
+    .flow-step .flow-label{ font-size:13px; }
+    .flow-connector{ height:20px; margin-left:17px; }
+
+    .chrome-bottom{ bottom:14px; gap:12px; }
+    .navbtn{ width:34px; height:34px; font-size:14px; }
+    .dots-nav{ gap:5px; max-width: 42vw; overflow-x:auto; }
+    .dots-nav .d{ flex-shrink:0; }
+    .counter{ font-size:11px; min-width:44px; }
+  }
+
+  @media (max-width: 420px){
+    .slide{ padding: 26px 16px 92px; }
+    h1.slide-title{ font-size: 22px; }
+    h1.slide-title[style*="56px"]{ font-size: 25px !important; }
+    .subtitle{ font-size: 13.5px; }
+    .signal-node{ min-width: 62px; }
+    .signal-node .node-icon{ width:38px; height:38px; font-size:16px; }
+    .kicker-num{ width:22px; height:22px; font-size:13px; }
+  }
+
+  @media (max-height: 560px) and (orientation: landscape){
+    .slide{ padding: 20px 40px 70px; }
+    h1.slide-title{ font-size: 22px; }
+    .subtitle{ margin-bottom:14px; }
+    .chrome-bottom{ bottom:8px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .slide{ transition:none; }
+    .signal-link.on, .flow-connector.on{ animation:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="bgcanvas"></div>
+<div class="chrome-top"><div class="bar" id="progressBar"></div></div>
+<div class="brand-tag"><span class="sq"></span> ESP32 · TELEGRAM</div>
+
+<div id="deck">
+
+  <!-- 1. TITLE -->
+  <section class="slide active">
+    <div class="slide-body" style="align-items:center; justify-content:center;">
+      <div style="text-align:center; max-width:900px; margin:0 auto;">
+        <div class="eyebrow" style="justify-content:center;"><span class="dot"></span> CLASS WORKSHOP</div>
+        <h1 class="slide-title" style="font-size:56px; text-align:center;">Create a <span class="accent">Telegram Bot</span><br>and Connect It to ESP32</h1>
+        <p class="subtitle" style="margin:18px auto 44px; text-align:center;">From BotFather to a live temperature alert on your phone — ten short parts, one working notification pipeline.</p>
+        <div class="signal-path" style="max-width:760px; margin:0 auto;">
+          <div class="signal-node">
+            <div class="node-icon">🌡️</div>
+            <div class="node-label">ESP32</div>
+          </div>
+          <div class="signal-link on"></div>
+          <div class="signal-node">
+            <div class="node-icon">📶</div>
+            <div class="node-label">WI-FI</div>
+          </div>
+          <div class="signal-link on"></div>
+          <div class="signal-node">
+            <div class="node-icon">🤖</div>
+            <div class="node-label">BOT</div>
+          </div>
+          <div class="signal-link on"></div>
+          <div class="signal-node">
+            <div class="node-icon">📱</div>
+            <div class="node-label">PHONE</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. ROADMAP -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> ROADMAP</div>
+    <h1 class="slide-title">Ten parts, three phases</h1>
+    <p class="subtitle">Everything builds toward one goal: your ESP32 messaging you directly on Telegram.</p>
+    <div class="slide-body" style="gap:26px;">
+      <div class="col" style="flex:1;">
+        <div class="phase-label">Phase 1 — Set up Telegram</div>
+        <div class="stack" style="gap:10px;">
+          <div class="roadmap-item"><div class="kicker-num">1</div><div><div class="rtitle">Create the bot</div><div class="rsub">Talk to @BotFather</div></div></div>
+          <div class="roadmap-item"><div class="kicker-num">2</div><div><div class="rtitle">Start the bot</div><div class="rsub">Open the conversation</div></div></div>
+          <div class="roadmap-item"><div class="kicker-num">3</div><div><div class="rtitle">Get the Chat ID</div><div class="rsub">Read it from getUpdates</div></div></div>
+        </div>
+      </div>
+      <div class="col" style="flex:1;">
+        <div class="phase-label">Phase 2 — Wire up ESP32</div>
+        <div class="stack" style="gap:10px;">
+          <div class="roadmap-item"><div class="kicker-num">4</div><div><div class="rtitle">Install libraries</div><div class="rsub">UniversalTelegramBot + ArduinoJson</div></div></div>
+          <div class="roadmap-item"><div class="kicker-num">5</div><div><div class="rtitle">Test code</div><div class="rsub">Send one simple message</div></div></div>
+          <div class="roadmap-item"><div class="kicker-num">6</div><div><div class="rtitle">Enter your info</div><div class="rsub">Wi-Fi, token, chat ID</div></div></div>
+        </div>
+      </div>
+      <div class="col" style="flex:1;">
+        <div class="phase-label">Phase 3 — Go live</div>
+        <div class="stack" style="gap:10px;">
+          <div class="roadmap-item"><div class="kicker-num">7</div><div><div class="rtitle">Upload</div><div class="rsub">Flash the ESP32</div></div></div>
+          <div class="roadmap-item"><div class="kicker-num">8</div><div><div class="rtitle">Verify</div><div class="rsub">Serial Monitor + phone check</div></div></div>
+          <div class="roadmap-item"><div class="kicker-num">9</div><div><div class="rtitle">Add the alert</div><div class="rsub">Temperature ≥ 31°C → notify</div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. PART 1: Step 1-2 -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 1 — CREATE THE TELEGRAM BOT <span class="part-tag">· Steps 1–2</span></div>
+    <h1 class="slide-title">Talk to BotFather</h1>
+    <p class="subtitle">Every Telegram bot is created through one official account. No dashboard, no signup form — just a chat.</p>
+    <div class="slide-body" style="gap:40px; align-items:center;">
+      <div style="flex:1;" class="stack">
+        <div class="step-card">
+          <div class="step-num">STEP 01</div>
+          <div class="step-title">Open Telegram</div>
+          <div class="step-desc">Open the Telegram app on your phone and search for <b style="color:var(--cyan)">@BotFather</b>. Make sure you select the official BotFather account.</div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">STEP 02</div>
+          <div class="step-title">Create a new bot</div>
+          <div class="step-desc">Send the command below. BotFather will ask what to call your bot — enter any name you like, e.g. <i>ESP32 Temperature Alert</i>.</div>
+        </div>
+      </div>
+      <div style="flex:1;" class="stack">
+        <div class="telegram-bubble me"><span class="who">You</span><code>/newbot</code></div>
+        <div class="telegram-bubble"><span class="who">BotFather</span>Alright, a new bot. How are we going to call it?</div>
+        <div class="telegram-bubble me"><span class="who">You</span>ESP32 Temperature Alert</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. PART 1: Step 3-4 -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 1 — CREATE THE TELEGRAM BOT <span class="part-tag">· Steps 3–4</span></div>
+    <h1 class="slide-title">Username &amp; Bot Token</h1>
+    <p class="subtitle">Two pieces come out of this step — one you'll pick, one you must protect.</p>
+    <div class="slide-body" style="gap:24px;">
+      <div class="step-card" style="flex:1;">
+        <div class="step-num">STEP 03</div>
+        <div class="step-title">Create a username</div>
+        <div class="step-desc" style="margin-bottom:14px;">The username must end with <code style="color:var(--green)">bot</code>. If it's already taken, try another.</div>
+        <div class="stack" style="gap:8px;">
+          <div class="pill" style="color:var(--green); border-color: rgba(158,206,106,.4);">esp32_temperature_alert_bot</div>
+          <div class="pill" style="color:var(--green); border-color: rgba(158,206,106,.4);">shikin_esp32_bot</div>
+        </div>
+      </div>
+      <div class="step-card" style="flex:1; border-color: var(--red);">
+        <div class="step-num">STEP 04</div>
+        <div class="step-title">Copy the bot token</div>
+        <div class="step-desc" style="margin-bottom:14px;">BotFather gives you something like this. This is your <b style="color:var(--red)">BOT TOKEN</b> — save it, you'll paste it into the ESP32 code later.</div>
+        <div class="codebox">
+          <pre style="padding:12px 16px; color:var(--orange);">1234567890:AAExampleAbCdEfGh123456789</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. PART 2: Step 5 -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 2 — START YOUR BOT <span class="part-tag">· Step 5</span></div>
+    <h1 class="slide-title">Open the conversation</h1>
+    <p class="subtitle">A bot can't message you first. This one handshake is what unlocks everything after it.</p>
+    <div class="slide-body" style="align-items:center; gap:48px;">
+      <div style="flex:1;" class="stack">
+        <div class="step-card">
+          <div class="step-num">WHY THIS MATTERS</div>
+          <div class="step-desc" style="font-size:15.5px;">BotFather gives you a link to your new bot. Open it, then press <b style="color:var(--blue)">START</b> — or simply send <code style="color:var(--green)">/start</code>. Your bot needs a conversation with you before you can retrieve your Chat ID in the next part.</div>
+        </div>
+      </div>
+      <div style="flex:1; display:flex; justify-content:center;">
+        <div class="stack" style="max-width:320px;">
+          <div class="telegram-bubble me" style="text-align:center; align-self:center;"><span class="who">You</span><code>/start</code></div>
+          <div style="text-align:center; margin-top:10px;">
+            <span class="pill" style="font-size:15px; padding:10px 22px; color:var(--green); border-color:var(--green);">▶ START</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. PART 3: Step 6-7 Chat ID -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 3 — GET YOUR CHAT ID <span class="part-tag">· Steps 6–7</span></div>
+    <h1 class="slide-title">Two IDs your ESP32 needs</h1>
+    <p class="subtitle">You already have the bot token. Now extract the Chat ID from Telegram's own API.</p>
+    <div class="slide-body" style="gap:26px;">
+      <div style="flex:1;" class="stack">
+        <div class="step-card">
+          <div class="step-num">STEP 06</div>
+          <div class="step-title">Message your bot</div>
+          <div class="step-desc">Send anything simple — e.g. <code style="color:var(--green)">hello</code>.</div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">STEP 07</div>
+          <div class="step-title">Call getUpdates</div>
+          <div class="step-desc">Open a browser and visit the URL on the right, replacing <code style="color:var(--orange)">YOUR_BOT_TOKEN</code> with your real token. This method retrieves incoming messages received by your bot.</div>
+        </div>
+      </div>
+      <div style="flex:1.3;" class="stack">
+        <div class="codebox">
+          <div class="codebox-head"><span class="dots"><span></span><span></span><span></span></span>browser</div>
+          <pre>https://api.telegram.org/bot<span class="c-var">YOUR_BOT_TOKEN</span>/getUpdates</pre>
+        </div>
+        <div class="codebox">
+          <div class="codebox-head"><span class="dots"><span></span><span></span><span></span></span>response</div>
+          <pre>"chat":{
+    "id":<span class="c-num">123456789</span>,
+    "first_name":"Shikin"
+}</pre>
+        </div>
+        <div style="text-align:right;"><span class="pill" style="color:var(--red); border-color:var(--red);">123456789 → your CHAT ID</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. PART 4: libraries -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 4 — INSTALL ESP32 TELEGRAM LIBRARY</div>
+    <h1 class="slide-title">Two libraries, one menu</h1>
+    <p class="subtitle">Everything on the ESP32 side runs through the Arduino IDE's Library Manager.</p>
+    <div class="slide-body" style="align-items:center; gap:44px;">
+      <div style="flex:1;" class="stack">
+        <div class="step-card">
+          <div class="step-desc" style="font-size:15.5px; margin-bottom:0;">Open Arduino IDE, then go to:</div>
+          <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-family:var(--font-mono); font-size:13.5px;">
+            <span class="pill">Sketch</span><span style="color:var(--comment)">→</span>
+            <span class="pill">Include Library</span><span style="color:var(--comment)">→</span>
+            <span class="pill">Manage Libraries</span>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;" class="stack">
+        <div class="step-card" style="border-color: var(--blue);">
+          <div class="step-title" style="font-size:16px;">UniversalTelegramBot</div>
+          <div class="step-desc">by Brian Lough — supports Arduino devices including ESP32.</div>
+        </div>
+        <div class="step-card" style="border-color: var(--purple);">
+          <div class="step-title" style="font-size:16px;">ArduinoJson</div>
+          <div class="step-desc">Required alongside it for parsing Telegram's responses.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. PART 5: test code -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 5 — TEST TELEGRAM WITH ESP32</div>
+    <h1 class="slide-title">One message, before any sensors</h1>
+    <p class="subtitle">Before wiring up DHT11, a buzzer, or an LED — confirm the ESP32 can send a single Telegram message.</p>
+    <div class="slide-body">
+      <div class="codebox" style="width:100%;">
+        <div class="codebox-head"><span class="dots"><span></span><span></span><span></span></span>sketch.ino</div>
+        <pre><span class="c-kw">#include</span> <span class="c-str">&lt;WiFi.h&gt;</span>
+<span class="c-kw">#include</span> <span class="c-str">&lt;WiFiClientSecure.h&gt;</span>
+<span class="c-kw">#include</span> <span class="c-str">&lt;UniversalTelegramBot.h&gt;</span>
+
+<span class="c-com">// WiFi</span>
+<span class="c-kw">const char*</span> ssid = <span class="c-str">"YOUR_WIFI_NAME"</span>;
+<span class="c-kw">const char*</span> password = <span class="c-str">"YOUR_WIFI_PASSWORD"</span>;
+
+<span class="c-com">// Telegram</span>
+<span class="c-kw">#define</span> BOTtoken <span class="c-str">"YOUR_BOT_TOKEN"</span>
+<span class="c-kw">#define</span> CHAT_ID <span class="c-str">"YOUR_CHAT_ID"</span>
+
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOTtoken, client);
+
+<span class="c-kw">void</span> <span class="c-fn">setup</span>() {
+  Serial.<span class="c-fn">begin</span>(<span class="c-num">115200</span>);
+  client.<span class="c-fn">setInsecure</span>();          <span class="c-com">// allow secure Telegram connection</span>
+  WiFi.<span class="c-fn">begin</span>(ssid, password);
+  <span class="c-kw">while</span> (WiFi.<span class="c-fn">status</span>() != WL_CONNECTED) { <span class="c-fn">delay</span>(<span class="c-num">500</span>); }
+
+  bot.<span class="c-fn">sendMessage</span>(CHAT_ID, <span class="c-str">"ESP32 is connected!"</span>, <span class="c-str">""</span>);
+}
+
+<span class="c-kw">void</span> <span class="c-fn">loop</span>() {}</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. PART 6: enter info -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 6 — ENTER YOUR INFORMATION</div>
+    <h1 class="slide-title">Four placeholders, four swaps</h1>
+    <p class="subtitle">Everything you collected in Parts 1–3 goes back into these four lines.</p>
+    <div class="slide-body">
+      <div class="grid-2" style="align-content:center;">
+        <div class="step-card">
+          <div class="step-num" style="color:var(--cyan)">WI-FI NAME</div>
+          <div class="codebox" style="margin-top:10px;"><pre style="padding:12px 14px;"><span class="c-kw">const char*</span> ssid = <span class="c-str">"<span class="c-var">YOUR_WIFI_NAME</span>"</span>;</pre></div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="color:var(--cyan)">WI-FI PASSWORD</div>
+          <div class="codebox" style="margin-top:10px;"><pre style="padding:12px 14px;"><span class="c-kw">const char*</span> password = <span class="c-str">"<span class="c-var">YOUR_WIFI_PASSWORD</span>"</span>;</pre></div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="color:var(--red)">BOT TOKEN <span style="color:var(--comment)">— from Part 1</span></div>
+          <div class="codebox" style="margin-top:10px;"><pre style="padding:12px 14px;"><span class="c-kw">#define</span> BOTtoken <span class="c-str">"<span class="c-var">YOUR_BOT_TOKEN</span>"</span></pre></div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="color:var(--red)">CHAT ID <span style="color:var(--comment)">— from Part 3</span></div>
+          <div class="codebox" style="margin-top:10px;"><pre style="padding:12px 14px;"><span class="c-kw">#define</span> CHAT_ID <span class="c-str">"<span class="c-var">YOUR_CHAT_ID</span>"</span></pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10. PART 7-8: upload + serial -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 7–8 — UPLOAD &amp; CHECK SERIAL MONITOR</div>
+    <h1 class="slide-title">Flash it, then watch it</h1>
+    <p class="subtitle">The board setup is the same every time you flash an ESP32.</p>
+    <div class="slide-body" style="gap:26px;">
+      <div style="flex:1;" class="stack">
+        <div class="step-card">
+          <div class="step-num">STEP 07 — UPLOAD</div>
+          <div class="step-desc">Connect ESP32 to your computer. In Arduino IDE:</div>
+          <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-family:var(--font-mono); font-size:12.5px;">
+            <span class="pill">Tools → Board</span><span style="color:var(--comment)">→</span><span class="pill">ESP32 Dev Module</span>
+          </div>
+          <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-family:var(--font-mono); font-size:12.5px;">
+            <span class="pill">Tools → Port</span><span style="color:var(--comment)">→</span><span class="pill" style="color:var(--green); border-color:var(--green);">Upload</span>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">STEP 08 — SERIAL MONITOR</div>
+          <div class="step-desc">Open <b style="color:var(--blue)">Tools → Serial Monitor</b>, set baud rate to <code style="color:var(--yellow)">115200</code>.</div>
+        </div>
+      </div>
+      <div style="flex:1;">
+        <div class="codebox" style="height:100%;">
+          <div class="codebox-head"><span class="dots"><span></span><span></span><span></span></span>Serial Monitor · 115200 baud</div>
+          <pre>Connecting to WiFi....
+<span class="c-fn">WiFi connected!</span>
+<span class="c-fn">Telegram message sent!</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11. PART 9: check phone / flow -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 9 — CHECK YOUR PHONE</div>
+    <h1 class="slide-title">🎉 The full loop, closed</h1>
+    <p class="subtitle">If this message arrives, every hop in the chain worked.</p>
+    <div class="slide-body" style="flex-direction:column; align-items:center; justify-content:center; gap:36px;">
+      <div class="telegram-bubble" style="font-size:16px;"><span class="who">ESP32 Temperature Alert</span>ESP32 is connected!</div>
+      <div class="signal-path">
+        <div class="signal-node"><div class="node-icon">🌡️</div><div class="node-label">ESP32</div></div>
+        <div class="signal-link on"></div>
+        <div class="signal-node"><div class="node-icon">📶</div><div class="node-label">WI-FI</div></div>
+        <div class="signal-link on"></div>
+        <div class="signal-node"><div class="node-icon">☁️</div><div class="node-label">TELEGRAM SERVER</div></div>
+        <div class="signal-link on"></div>
+        <div class="signal-node"><div class="node-icon">🤖</div><div class="node-label">TELEGRAM BOT</div></div>
+        <div class="signal-link on"></div>
+        <div class="signal-node"><div class="node-icon">📱</div><div class="node-label">YOUR PHONE</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12. PART 10: temperature alert -->
+  <section class="slide">
+    <div class="eyebrow"><span class="dot"></span> PART 10 — ADD YOUR TEMPERATURE ALERT</div>
+    <h1 class="slide-title">From test message to real alert</h1>
+    <p class="subtitle">Once the basic test works, connect the same <code style="color:var(--green)">sendMessage()</code> call to your DHT11 sensor.</p>
+    <div class="slide-body" style="gap:40px;">
+      <div style="flex:1;" class="stack">
+        <div class="codebox">
+          <div class="codebox-head"><span class="dots"><span></span><span></span><span></span></span>sketch.ino</div>
+          <pre><span class="c-kw">if</span> (temperature >= <span class="c-num">31.0</span>) {
+  bot.<span class="c-fn">sendMessage</span>(
+    CHAT_ID,
+    <span class="c-str">"⚠️ HIGH TEMPERATURE ALERT!\nTemperature is above 31°C."</span>,
+    <span class="c-str">""</span>
+  );
+}</pre>
+        </div>
+        <div class="flow-vertical" style="margin-top:6px;">
+          <div class="flow-step"><div class="node-icon">🌡️</div><div><div class="flow-label">DHT11</div><div class="flow-sub">reads temperature</div></div></div>
+          <div class="flow-connector on"></div>
+          <div class="flow-step"><div class="node-icon">❓</div><div><div class="flow-label">Temperature ≥ 31°C?</div></div></div>
+          <div class="flow-connector on"></div>
+          <div class="flow-step"><div class="node-icon">💡🔊</div><div><div class="flow-label">LED ON · Buzzer ON</div></div></div>
+          <div class="flow-connector on"></div>
+          <div class="flow-step"><div class="node-icon">📲</div><div><div class="flow-label">Telegram alert → Phone</div></div></div>
+        </div>
+      </div>
+      <div style="flex:1; display:flex; align-items:center;">
+        <div class="notif-card" style="width:100%;">
+          <div class="notif-title">⚠️ HIGH TEMPERATURE ALERT!</div>
+          <div>Temperature: 32.4 °C</div>
+          <div>Humidity: 68 %</div>
+          <div>Buzzer: <span style="color:var(--green)">ON</span></div>
+          <div>LED: <span style="color:var(--green)">ON</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13. RECAP -->
+  <section class="slide">
+    <div class="slide-body" style="align-items:center; justify-content:center;">
+      <div style="text-align:center; max-width:820px; margin:0 auto;">
+        <div class="eyebrow" style="justify-content:center;"><span class="dot"></span> RECAP</div>
+        <h1 class="slide-title" style="text-align:center;">Bot token. Chat ID. <span class="accent">One sendMessage() call.</span></h1>
+        <p class="subtitle" style="margin:14px auto 36px; text-align:center;">That's the entire pipeline — from @BotFather to a DHT11 sensor pinging your phone the moment it crosses 31°C.</p>
+        <div class="grid-3">
+          <div class="roadmap-item" style="flex-direction:column; align-items:flex-start;">
+            <div class="rtitle" style="color:var(--blue)">Telegram side</div>
+            <div class="rsub">BotFather · username · bot token · chat ID</div>
+          </div>
+          <div class="roadmap-item" style="flex-direction:column; align-items:flex-start;">
+            <div class="rtitle" style="color:var(--purple)">ESP32 side</div>
+            <div class="rsub">Libraries · Wi-Fi credentials · test message</div>
+          </div>
+          <div class="roadmap-item" style="flex-direction:column; align-items:flex-start;">
+            <div class="rtitle" style="color:var(--orange)">Sensor logic</div>
+            <div class="rsub">DHT11 threshold → LED, buzzer, Telegram</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="chrome-bottom">
+  <div class="navbtn" id="prevBtn">←</div>
+  <div class="dots-nav" id="dotsNav"></div>
+  <div class="navbtn" id="nextBtn">→</div>
+  <div class="counter" id="counter">01 / 13</div>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  let current = 0;
+
+  const dotsNav = document.getElementById('dotsNav');
+  slides.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'd' + (i === 0 ? ' active' : '');
+    d.addEventListener('click', () => goTo(i));
+    dotsNav.appendChild(d);
+  });
+  const dots = Array.from(dotsNav.children);
+
+  const progressBar = document.getElementById('progressBar');
+  const counter = document.getElementById('counter');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+
+  function render(){
+    slides.forEach((s, i) => s.classList.toggle('active', i === current));
+    dots.forEach((d, i) => d.classList.toggle('active', i === current));
+    progressBar.style.width = ((current + 1) / total * 100) + '%';
+    counter.textContent = String(current + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
+    prevBtn.classList.toggle('disabled', current === 0);
+    nextBtn.classList.toggle('disabled', current === total - 1);
+  }
+
+  function goTo(i){
+    current = Math.max(0, Math.min(total - 1, i));
+    render();
+  }
+
+  prevBtn.addEventListener('click', () => goTo(current - 1));
+  nextBtn.addEventListener('click', () => goTo(current + 1));
+
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); goTo(current + 1); }
+    if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); goTo(current - 1); }
+    if (e.key === 'Home') goTo(0);
+    if (e.key === 'End') goTo(total - 1);
+  });
+
+  // swipe support
+  let touchStartX = null;
+  document.addEventListener('touchstart', e => touchStartX = e.touches[0].clientX);
+  document.addEventListener('touchend', e => {
+    if (touchStartX === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 60) goTo(current + (dx < 0 ? 1 : -1));
+    touchStartX = null;
+  });
+
+  render();
+</script>
+
+</body>
+</html>
